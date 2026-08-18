@@ -16,24 +16,37 @@ class NotificationService:
     """
 
     def __init__(self):
+
         self.api_key = os.getenv("BREVO_API_KEY")
         self.sender_email = os.getenv("BREVO_SENDER_EMAIL")
         self.sender_name = os.getenv("BREVO_SENDER_NAME")
         self.recipient_email = os.getenv("BREVO_RECIPIENT_EMAIL")
 
         if not self.api_key:
-            raise ValueError("BREVO_API_KEY is not configured")
+            raise ValueError(
+                "BREVO_API_KEY is not configured"
+            )
 
         if not self.sender_email:
-            raise ValueError("BREVO_SENDER_EMAIL is not configured")
+            raise ValueError(
+                "BREVO_SENDER_EMAIL is not configured"
+            )
 
         if not self.sender_name:
-            raise ValueError("BREVO_SENDER_NAME is not configured")
+            raise ValueError(
+                "BREVO_SENDER_NAME is not configured"
+            )
 
         if not self.recipient_email:
-            raise ValueError("BREVO_RECIPIENT_EMAIL is not configured")
+            raise ValueError(
+                "BREVO_RECIPIENT_EMAIL is not configured"
+            )
 
         self.url = "https://api.brevo.com/v3/smtp/email"
+
+    # ========================================================
+    # SEND SECURITY ALERT
+    # ========================================================
 
     def send_alert(
         self,
@@ -48,6 +61,7 @@ class NotificationService:
         attack: str,
         confidence: float,
         recommendation: str,
+        llm_explanation: str,
     ):
 
         headers = {
@@ -56,11 +70,19 @@ class NotificationService:
             "content-type": "application/json",
         }
 
+        # ----------------------------------------------------
+        # Threat status
+        # ----------------------------------------------------
+
         threat_status = (
             "MALICIOUS"
             if malicious_ip
             else "NOT IDENTIFIED AS MALICIOUS"
         )
+
+        # ----------------------------------------------------
+        # Email body
+        # ----------------------------------------------------
 
         body = (
             "SENTINEL AI SECURITY ALERT\n"
@@ -74,6 +96,7 @@ class NotificationService:
             f"Attack Type: {attack}\n"
             f"Confidence: {confidence * 100:.1f}%\n"
             "\n"
+
             "--------------------------------\n"
             "THREAT INTELLIGENCE\n"
             "--------------------------------\n"
@@ -82,32 +105,52 @@ class NotificationService:
             f"ISP: {isp}\n"
             f"Intelligence Source: {intelligence_source}\n"
             "\n"
+
             "--------------------------------\n"
-            "RECOMMENDATION\n"
+            "SECURITY RECOMMENDATION\n"
             "--------------------------------\n"
             f"{recommendation}\n"
             "\n"
+
+            "--------------------------------\n"
+            "AI SECURITY EXPLANATION\n"
+            "--------------------------------\n"
+            f"{llm_explanation}\n"
+            "\n"
+
             "================================\n"
             "Generated automatically by Sentinel AI."
         )
 
+        # ----------------------------------------------------
+        # Brevo payload
+        # ----------------------------------------------------
+
         payload = {
+
             "sender": {
                 "name": self.sender_name,
                 "email": self.sender_email,
             },
+
             "to": [
                 {
                     "email": self.recipient_email,
                 }
             ],
+
             "subject": (
                 f"Sentinel AI - "
                 f"{severity.upper()} Risk Alert - "
                 f"{ip}"
             ),
+
             "textContent": body,
         }
+
+        # ----------------------------------------------------
+        # Send email
+        # ----------------------------------------------------
 
         response = requests.post(
             self.url,

@@ -1,11 +1,20 @@
 from app.agents.threat_agent import ThreatAgent
 from app.agents.risk_agent import RiskAgent
 from app.agents.recommendation_agent import RecommendationAgent
+
 from app.engines.threat_engine import ThreatEngine
+
 from app.tools.ioc_lookup import IOCLookup
-from app.utils.logger import logger
+
+from app.services.llm_service import LLMService
 from app.services.notification_service import NotificationService
 
+from app.utils.logger import logger
+
+
+# ============================================================
+# THREAT NODE
+# ============================================================
 
 def threat_node(state):
 
@@ -15,10 +24,16 @@ def threat_node(state):
 
     log = state["log"]
 
+    # --------------------------------------------------------
     # Calculate base threat score
+    # --------------------------------------------------------
+
     score = ThreatAgent.analyze(log)
 
+    # --------------------------------------------------------
     # Calculate explainable score breakdown
+    # --------------------------------------------------------
+
     breakdown = ThreatEngine.calculate_score_breakdown(log)
 
     state["score"] = score
@@ -35,6 +50,10 @@ def threat_node(state):
     return state
 
 
+# ============================================================
+# IOC NODE
+# ============================================================
+
 def ioc_node(state):
 
     ip = state["log"].source_ip
@@ -43,9 +62,16 @@ def ioc_node(state):
         f"IOC NODE | Checking IP reputation | IP={ip}"
     )
 
+    # --------------------------------------------------------
+    # Lookup IP reputation
+    # --------------------------------------------------------
+
     result = IOCLookup.lookup(ip)
 
+    # --------------------------------------------------------
     # Store IOC intelligence
+    # --------------------------------------------------------
+
     state["malicious_ip"] = result["is_malicious"]
     state["abuse_score"] = result["abuse_score"]
     state["country"] = result["country"]
@@ -60,9 +86,9 @@ def ioc_node(state):
         f"abuse_score={result['abuse_score']}"
     )
 
-    # --------------------------------------------------
+    # --------------------------------------------------------
     # Add IOC contribution to threat score
-    # --------------------------------------------------
+    # --------------------------------------------------------
 
     if result["is_malicious"]:
 
@@ -104,6 +130,10 @@ def ioc_node(state):
     return state
 
 
+# ============================================================
+# RISK NODE
+# ============================================================
+
 def risk_node(state):
 
     logger.info(
@@ -124,6 +154,10 @@ def risk_node(state):
     return state
 
 
+# ============================================================
+# RECOMMENDATION NODE
+# ============================================================
+
 def recommendation_node(state):
 
     logger.info(
@@ -131,42 +165,110 @@ def recommendation_node(state):
         f"severity={state['severity']}"
     )
 
-    # Generate recommendation
+    # --------------------------------------------------------
+    # 1. Generate deterministic security recommendation
+    # --------------------------------------------------------
+
     recommendation = RecommendationAgent.recommend(
         state["severity"]
     )
 
     state["recommendation"] = recommendation
 
-    # These are currently hardcoded in our PoC
+    # --------------------------------------------------------
+    # 2. Attack classification
+    #
+    # Currently this is our PoC classification.
+    # Later this can be replaced by an ML-based classifier.
+    # --------------------------------------------------------
+
     state["attack"] = "Brute Force"
-    state["confidence"] = 0.95
+
+    state["confidence"] = 0.85
 
     logger.info(
         f"RECOMMENDATION NODE | "
         f"Recommendation={recommendation}"
     )
 
-    # --------------------------------------------------
-    # Send security alert email
-    # --------------------------------------------------
+    # --------------------------------------------------------
+    # 3. Generate LLM security explanation
+    #
+    # IMPORTANT:
+    # The LLM does NOT decide the risk.
+    #
+    # ThreatAgent + IOC + RiskAgent determine the security
+    # result.
+    #
+    # Phi-4-mini only explains that result in human-readable
+    # language.
+    # --------------------------------------------------------
+
+    logger.info(
+        "RECOMMENDATION NODE | Generating LLM security explanation"
+    )
 
     ip = state["log"].source_ip
 
-    notification_service = NotificationService()
+    llm_service = LLMService()
 
-    notification_result = notification_service.send_alert(
+    llm_explanation = llm_service.generate_security_explanation(
         ip=ip,
-        malicious_ip=state["malicious_ip"],
-        abuse_score=state["abuse_score"],
-        country=state["country"],
-        isp=state["isp"],
-        intelligence_source=state["intelligence_source"],
         score=state["score"],
         severity=state["severity"],
         attack=state["attack"],
         confidence=state["confidence"],
         recommendation=state["recommendation"],
+        malicious_ip=state["malicious_ip"],
+        abuse_score=state["abuse_score"],
+        country=state["country"],
+        isp=state["isp"],
+        intelligence_source=state["intelligence_source"],
+    )
+
+    # --------------------------------------------------------
+    # VERY IMPORTANT
+    # Store LLM result in GraphState BEFORE using it.
+    # This fixes the KeyError you received.
+    # --------------------------------------------------------
+
+    state["llm_explanation"] = llm_explanation
+
+    logger.info(
+        "RECOMMENDATION NODE | LLM explanation generated successfully"
+    )
+
+    # --------------------------------------------------------
+    # 4. Send security alert email
+    # --------------------------------------------------------
+
+    notification_service = NotificationService()
+
+    notification_result = notification_service.send_alert(
+
+        ip=ip,
+
+        malicious_ip=state["malicious_ip"],
+
+        abuse_score=state["abuse_score"],
+
+        country=state["country"],
+
+        isp=state["isp"],
+
+        intelligence_source=state["intelligence_source"],
+
+        score=state["score"],
+
+        severity=state["severity"],
+
+        attack=state["attack"],
+
+        confidence=state["confidence"],
+
+        recommendation=state["recommendation"],
+
+        llm_explanation=state["llm_explanation"],
     )
 
     logger.info(
