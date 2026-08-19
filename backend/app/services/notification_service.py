@@ -12,7 +12,7 @@ class NotificationService:
     Handles email notifications for Sentinel AI.
 
     Uses Brevo's Transactional Email API
-    to send security alerts.
+    to send security alerts to one or more recipients.
     """
 
     def __init__(self):
@@ -20,7 +20,26 @@ class NotificationService:
         self.api_key = os.getenv("BREVO_API_KEY")
         self.sender_email = os.getenv("BREVO_SENDER_EMAIL")
         self.sender_name = os.getenv("BREVO_SENDER_NAME")
-        self.recipient_email = os.getenv("BREVO_RECIPIENT_EMAIL")
+
+        # --------------------------------------------------
+        # Support multiple recipients
+        #
+        # Example:
+        # BREVO_RECIPIENT_EMAIL=abc@gmail.com,xyz@gmail.com
+        # --------------------------------------------------
+
+        self.recipient_emails = [
+            email.strip()
+            for email in os.getenv(
+                "BREVO_RECIPIENT_EMAIL",
+                ""
+            ).split(",")
+            if email.strip()
+        ]
+
+        # --------------------------------------------------
+        # Validate configuration
+        # --------------------------------------------------
 
         if not self.api_key:
             raise ValueError(
@@ -37,16 +56,16 @@ class NotificationService:
                 "BREVO_SENDER_NAME is not configured"
             )
 
-        if not self.recipient_email:
+        if not self.recipient_emails:
             raise ValueError(
                 "BREVO_RECIPIENT_EMAIL is not configured"
             )
 
         self.url = "https://api.brevo.com/v3/smtp/email"
 
-    # ========================================================
+    # ======================================================
     # SEND SECURITY ALERT
-    # ========================================================
+    # ======================================================
 
     def send_alert(
         self,
@@ -64,15 +83,19 @@ class NotificationService:
         llm_explanation: str,
     ):
 
+        # --------------------------------------------------
+        # Request headers
+        # --------------------------------------------------
+
         headers = {
             "accept": "application/json",
             "api-key": self.api_key,
             "content-type": "application/json",
         }
 
-        # ----------------------------------------------------
-        # Threat status
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # Determine threat status
+        # --------------------------------------------------
 
         threat_status = (
             "MALICIOUS"
@@ -80,9 +103,9 @@ class NotificationService:
             else "NOT IDENTIFIED AS MALICIOUS"
         )
 
-        # ----------------------------------------------------
-        # Email body
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # Build email body
+        # --------------------------------------------------
 
         body = (
             "SENTINEL AI SECURITY ALERT\n"
@@ -122,12 +145,14 @@ class NotificationService:
             "Generated automatically by Sentinel AI."
         )
 
-        # ----------------------------------------------------
+        # --------------------------------------------------
         # Brevo payload
-        # ----------------------------------------------------
+        #
+        # Creates one "to" entry for every configured
+        # recipient.
+        # --------------------------------------------------
 
         payload = {
-
             "sender": {
                 "name": self.sender_name,
                 "email": self.sender_email,
@@ -135,8 +160,9 @@ class NotificationService:
 
             "to": [
                 {
-                    "email": self.recipient_email,
+                    "email": email,
                 }
+                for email in self.recipient_emails
             ],
 
             "subject": (
@@ -148,9 +174,9 @@ class NotificationService:
             "textContent": body,
         }
 
-        # ----------------------------------------------------
-        # Send email
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # Send email through Brevo
+        # --------------------------------------------------
 
         response = requests.post(
             self.url,
@@ -159,6 +185,8 @@ class NotificationService:
             timeout=10,
         )
 
+        # Raise an exception if Brevo returns an HTTP error
         response.raise_for_status()
 
+        # Return Brevo response
         return response.json()
